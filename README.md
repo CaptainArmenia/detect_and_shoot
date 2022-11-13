@@ -1,1 +1,0 @@
-# detect_and_shoot
