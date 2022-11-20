@@ -81,8 +81,12 @@ target_color = (255, 0, 0)
 target_p1, target_p2 = None, None
 target_lw = 3
 
+# initialize background substractor
+fgbg = cv2.createBackgroundSubtractorMOG2()
+minimum = 300
+
 # output settings
-save_img = False
+save_feed = False
 save_clips = True
 vid_path, vid_writer = None, None
 save_path = "output/picamera.mp4"
@@ -107,21 +111,44 @@ while True:
         image_shape = im0.shape
         target_p1 = (int((image_shape[0] - target_width)/ 2), int((image_shape[1] - target_height) / 2))
         target_p2 = (int((image_shape[0] + target_width)/ 2), int((image_shape[1] + target_height) / 2))
+    
+    # detect motion
+    fgmask = fgbg.apply(im0)
+    contours,_ = cv2.findContours(fgmask, mode= cv2.RETR_TREE, method= cv2.CHAIN_APPROX_SIMPLE)
+    contours = sorted(contours,key=cv2.contourArea,reverse= True)
+
+    motion_detected = False
+
+    for cnt in contours:
+        if cv2.contourArea(cnt) < minimum:
+                continue
+        
+        (x, y, w, h) = cv2.boundingRect(cnt)
+        cv2.rectangle(im0, (x, y), (x + w, y + h), (255,255,255), 1)
+        print("Motion detected!")
+        motion_detected = True
+        # cv2.drawContours(fgmask, cnt, -1, 255, 3)
+        break
 
     for detection in detections:
         if len(detection) > 0:
             
-            # Reset sleep counter
-            no_activity_count = 0
+            if intersection_over_target((x, y, x + w, y + h), detection[0]):
+                # Reset sleep counter
+                print("Activity detected!")
+                no_activity_count = 0
 
-            if int(detection[0][5]) == 0 and (intersection_over_target((target_p1 + target_p2), detection[0]) > 0.8 or box_area(detection[0]) / (image_shape[0] * image_shape[1]) > 0.3):
-                print("Feuer!")
-                duration[0] = 3
-                target_color = (0, 0, 255)
-            
+            if motion_detected:
+                # if class is raton and enough overlap between target and detection and enough overlap between detection and motion
+                if int(detection[0][5]) == 0 and (intersection_over_target((target_p1 + target_p2), detection[0]) > 0.8 or box_area(detection[0]) / (image_shape[0] * image_shape[1]) > 0.3) and intersection_over_target((x, y, x + w, y + h), detection[0]) > 0.05:
+                    print("Feuer!")
+                    duration[0] = 3
+                    target_color = (0, 0, 255)
+                    
+            # Draw activated target
+            cv2.rectangle(im0, target_p1, target_p2, target_color, thickness=target_lw, lineType=cv2.LINE_AA)
+
             if save_clips:
-                # Draw target
-                cv2.rectangle(im0, target_p1, target_p2, target_color, thickness=target_lw, lineType=cv2.LINE_AA)
                 frame_buffer.append(im0)
                 empty_frames_count = 5
 
@@ -141,7 +168,7 @@ while True:
                     fps, w, h = 1, im0.shape[1], im0.shape[0] # 1 fps
 
                     dt = datetime.now()
-                    clip_save_path = f'output/clips/{str(dt).split(".")[0].replace(" ", "_")}.mp4'
+                    clip_save_path = f'output/detections/{str(dt).split(".")[0].replace(" ", "_")}.mp4'
                     clip_writer = cv2.VideoWriter(clip_save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
 
                     for frame in frame_buffer:
@@ -150,13 +177,13 @@ while True:
                     clip_writer.release()
                     frame_buffer = []
 
-    if save_img:
+    if save_feed:
         # Draw target
-        cv2.rectangle(im0, target_p1, target_p2, target_color, thickness=target_lw, lineType=cv2.LINE_AA)
+        # cv2.rectangle(im0, target_p1, target_p2, target_color, thickness=target_lw, lineType=cv2.LINE_AA)
 
         # Save results (image with detections)
         if vid_writer is None:
             fps, w, h = 30, im0.shape[1], im0.shape[0]
-            save_path = str(Path(save_path).with_suffix('.mp4'))  # force *.mp4 suffix on results videos
+            #save_path = str(Path(save_path).with_suffix('.mp4'))  # force *.mp4 suffix on results videos
             vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
-        vid_writer.write(im0)
+        res = vid_writer.write(im0)

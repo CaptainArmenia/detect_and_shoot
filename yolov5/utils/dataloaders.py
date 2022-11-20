@@ -28,6 +28,7 @@ from PIL import ExifTags, Image, ImageOps
 from torch.utils.data import DataLoader, Dataset, dataloader, distributed
 from tqdm import tqdm
 from picamera2 import Picamera2
+import libcamera
 
 from utils.augmentations import (Albumentations, augment_hsv, classify_albumentations, classify_transforms, copy_paste,
                                  letterbox, mixup, random_perspective)
@@ -293,6 +294,7 @@ class LoadPiCamera:  # for inference
         self.stride = stride
         self.camera = Picamera2()
         config = self.camera.create_still_configuration(main={"format": "RGB888", "size": (img_size, img_size)})
+        config["transform"] = libcamera.Transform(hflip=0, vflip=1)
         self.camera.configure(config)
         # self.camera.configure(self.camera.create_preview_configuration(main={"format": "XRGB8888", "size": (img_size, img_size)}))
         self.camera.start()
