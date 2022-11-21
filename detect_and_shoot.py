@@ -133,6 +133,9 @@ while True:
         target_p1 = (int((image_shape[0] - target_width)/ 2), int((image_shape[1] - target_height) / 2))
         target_p2 = (int((image_shape[0] + target_width)/ 2), int((image_shape[1] + target_height) / 2))
     
+    # draw target
+    cv2.rectangle(im0, target_p1, target_p2, target_color, thickness=target_lw, lineType=cv2.LINE_AA)
+    
     # detect motion
     fgmask = fgbg.apply(im0)
     contours,_ = cv2.findContours(fgmask, mode= cv2.RETR_TREE, method= cv2.CHAIN_APPROX_SIMPLE)
@@ -166,8 +169,8 @@ while True:
                     duration[0] = 3
                     target_color = (0, 0, 255)
                     
-            # Draw activated target
-            cv2.rectangle(im0, target_p1, target_p2, target_color, thickness=target_lw, lineType=cv2.LINE_AA)
+                    # Draw activated target
+                    cv2.rectangle(im0, target_p1, target_p2, target_color, thickness=target_lw, lineType=cv2.LINE_AA)
 
             if save_clips:
                 frame_buffer.append(im0)
@@ -180,7 +183,6 @@ while True:
 
             if len(frame_buffer) > 0 and save_clips:
                 if empty_frames_count > 0:
-                    cv2.rectangle(im0, target_p1, target_p2, target_color, thickness=target_lw, lineType=cv2.LINE_AA)
                     frame_buffer.append(im0)
                     empty_frames_count -= 1
                 else:
