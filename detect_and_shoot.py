@@ -9,6 +9,12 @@ import os
 from datetime import datetime
 
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--keep_alive", action="store_true")
+parser.add_argument("--record_frames", type=int, default=-1)
+
+args = parser.parse_args()
+
 GPIO.setmode(GPIO.BOARD)
  
 motor = 16    # Motor control pin
@@ -20,7 +26,7 @@ GPIO.setup(lights,GPIO.OUT)
 duration = [0]
 
 def shoot():
-    while True:
+    while remaining_frames != 0:
         if duration[0] > 0:
             GPIO.output(motor,GPIO.HIGH)
             
@@ -37,15 +43,27 @@ def turn_off_pump():
     sleep(0.1)
 
 
-def intersection_over_target(target, box):
-    dx = max(target[0], box[0]) - min(target[2], box[2])
-    dy = max(target[1], box[1]) - min(target[3], box[3])
-
-    return dx * dy / ((target[2] - target[0]) * (target[3] - target[1]))
-
-
 def box_area(box):
     return (box[2] - box[0]) * (box[3] - box[1])
+
+
+def intersection(box0, box1):
+    dx = max(box0[0], box1[0]) - min(box0[2], box1[2])
+    dy = max(box0[1], box1[1]) - min(box0[3], box1[3])
+
+    return dx * dy
+
+
+def union(box0, box1):
+    return box_area(box0) + box_area(box1) - intersection(box0, box1)
+
+
+def intersection_over_union(box0, box1):
+    return intersection(box0, box1) / union(box0, box1)
+
+
+def intersection_over_target(target, box):
+    return intersection(target, box) / box_area(target)
 
 
 def go_to_sleep():
@@ -65,6 +83,7 @@ def turn_off_lights():
     sleep(0.1)
     GPIO.output(lights,GPIO.LOW)
     sleep(0.1)
+
 
 turn_off_pump()
 turn_on_lights()
@@ -91,20 +110,22 @@ save_clips = True
 vid_path, vid_writer = None, None
 save_path = "output/picamera.mp4"
 
+# configure program lifespan
+frame_buffer = []
+empty_frames_count = 0
+no_activity_count = 0
+remaining_frames = args.record_frames
+
 # start shooting thread
 t = Thread(target=shoot)
 t.start()
 
-frame_buffer = []
-empty_frames_count = 0
-no_activity_count = 0
-
 while True:
-    detections, im0 = detector.detect_once(conf_thres=0.6, grayscale=True)
-
-    if no_activity_count >= 60:
-        print("Seems like there is nobody here. Going to sleep.")
+    if no_activity_count >= 60 and not args.keep_alive:
+        print("Seems like nobody is here. Going to sleep.")
         go_to_sleep()
+
+    detections, im0 = detector.detect_once(conf_thres=0.6, grayscale=True)
 
     # target setup
     if (target_p1, target_p2) == (None, None):
@@ -124,7 +145,8 @@ while True:
                 continue
         
         (x, y, w, h) = cv2.boundingRect(cnt)
-        cv2.rectangle(im0, (x, y), (x + w, y + h), (255,255,255), 1)
+        motion_contour_box = (x, y, x + w, y + h)
+        cv2.rectangle(im0, (x, y), (x + w, y + h), (255, 255, 255), 1)
         print("Motion detected!")
         motion_detected = True
         # cv2.drawContours(fgmask, cnt, -1, 255, 3)
@@ -132,15 +154,14 @@ while True:
 
     for detection in detections:
         if len(detection) > 0:
-            
-            if intersection_over_target((x, y, x + w, y + h), detection[0]):
-                # Reset sleep counter
-                print("Activity detected!")
-                no_activity_count = 0
-
             if motion_detected:
-                # if class is raton and enough overlap between target and detection and enough overlap between detection and motion
-                if int(detection[0][5]) == 0 and (intersection_over_target((target_p1 + target_p2), detection[0]) > 0.8 or box_area(detection[0]) / (image_shape[0] * image_shape[1]) > 0.3) and intersection_over_target((x, y, x + w, y + h), detection[0]) > 0.05:
+                if intersection_over_target((x, y, x + w, y + h), detection[0]):
+                    # Reset sleep counter
+                    print("Activity detected!")
+                    no_activity_count = 0
+            
+                # if detection class is raton and there is enough overlap between target and detection and there is enough overlap between detection and motion contour
+                if int(detection[0][5]) == 0 and (intersection_over_target((target_p1 + target_p2), detection[0]) > 0.3 or box_area(detection[0]) / (image_shape[0] * image_shape[1]) > 0.3) and intersection_over_target(motion_contour_box, detection[0]) > 0.05:
                     print("Feuer!")
                     duration[0] = 3
                     target_color = (0, 0, 255)
@@ -177,13 +198,18 @@ while True:
                     clip_writer.release()
                     frame_buffer = []
 
-    if save_feed:
-        # Draw target
-        # cv2.rectangle(im0, target_p1, target_p2, target_color, thickness=target_lw, lineType=cv2.LINE_AA)
-
-        # Save results (image with detections)
-        if vid_writer is None:
-            fps, w, h = 30, im0.shape[1], im0.shape[0]
-            #save_path = str(Path(save_path).with_suffix('.mp4'))  # force *.mp4 suffix on results videos
-            vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
-        res = vid_writer.write(im0)
+    if remaining_frames >= 0:
+        if remaining_frames > 0:
+            # Save results (image with detections)
+            if vid_writer is None:
+                fps, w, h = 1, im0.shape[1], im0.shape[0]
+                #save_path = str(Path(save_path).with_suffix('.mp4'))  # force *.mp4 suffix on results videos
+                vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
+            res = vid_writer.write(im0)
+            remaining_frames -= 1
+        else:
+            vid_writer.release()
+            t.join()
+            turn_off_pump()
+            turn_off_lights()
+            break
