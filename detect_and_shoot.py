@@ -9,12 +9,6 @@ import os
 from datetime import datetime
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--keep_alive", action="store_true")
-parser.add_argument("--record_frames", type=int, default=-1)
-
-args = parser.parse_args()
-
 GPIO.setmode(GPIO.BOARD)
  
 motor = 16    # Motor control pin
@@ -30,7 +24,6 @@ def shoot():
     while remaining_frames != 0:
         if duration[0] > 0:
             turn_on_pump()
-            
             duration[0] -= 1
         else:
             turn_off_pump()
@@ -93,6 +86,12 @@ def turn_off_lights():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--keep_alive", action="store_true")
+    parser.add_argument("--record_frames", type=int, default=-1)
+
+    args = parser.parse_args()
+
     turn_off_pump()
     turn_on_lights()
 
