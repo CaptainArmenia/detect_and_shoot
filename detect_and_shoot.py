@@ -17,16 +17,24 @@ lights = 40   # Lights control pin
 GPIO.setup(motor,GPIO.OUT)
 GPIO.setup(lights,GPIO.OUT)
 
-duration = [0]
+duration = 3
+cooldown = 10
+duration_left = 0
+cooldown_left = 0
 
+def control_gun():
+    global duration_left
+    global cooldown_left
 
-def shoot():
     while remaining_frames != 0:
-        if duration[0] > 0:
+        if duration_left > 0:
             turn_on_pump()
-            duration[0] -= 1
+            duration_left -= 1
         else:
             turn_off_pump()
+            if cooldown_left > 0:
+                print("cooling down gun")
+                cooldown_left -= 1
 
         sleep(1)
 
@@ -123,8 +131,8 @@ if __name__ == "__main__":
     no_activity_count = 0
     remaining_frames = args.record_frames
 
-    # start shooting thread
-    t = Thread(target=shoot)
+    # start gun control thread
+    t = Thread(target=control_gun)
     t.start()
 
     while True:
@@ -171,10 +179,11 @@ if __name__ == "__main__":
                         no_activity_count = 0
                 
                     # if detection class is raton and there is enough overlap between target and detection and there is enough overlap between detection and motion contour
-                    if int(detection[0][5]) == 0 and (intersection_over_target((target_p1 + target_p2), detection[0]) > 0.3 or box_area(detection[0]) / (image_shape[0] * image_shape[1]) > 0.3) and intersection_over_target(motion_contour_box, detection[0]) > 0.05:
+                    if int(detection[0][5]) == 0 and (intersection_over_target((target_p1 + target_p2), detection[0]) > 0.3 or box_area(detection[0]) / (image_shape[0] * image_shape[1]) > 0.3) and intersection_over_target(motion_contour_box, detection[0]) > 0.05 and cooldown_left == 0:
                         print("Feuer!")
-                        duration[0] = 3
+                        duration_left = 3
                         target_color = (0, 0, 255)
+                        cooldown_left = cooldown
                         
                         # Draw activated target
                         cv2.rectangle(im0, target_p1, target_p2, target_color, thickness=target_lw, lineType=cv2.LINE_AA)
