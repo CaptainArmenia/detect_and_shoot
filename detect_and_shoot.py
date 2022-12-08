@@ -106,7 +106,7 @@ if __name__ == "__main__":
     detection_hits = 0
     
     from yolov5.detect import Detector
-    detector = Detector(source="picamera", imgsz=640, weights="models/best_yolov5s.pt", half=False, dnn=False)
+    detector = Detector(source="picamera", imgsz=640, weights="yolov5s_filtered.pt", half=False, dnn=False)
 
     # target config
     target_width = 200
