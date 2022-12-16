@@ -1,12 +1,15 @@
-import RPi.GPIO as GPIO
+import os
 from time import sleep
 from threading import Thread
 import sys
 import argparse
-import cv2
 from pathlib import Path
-import os
 from datetime import datetime
+
+import RPi.GPIO as GPIO
+import cv2
+
+from cloud_utils import report_activity
 
 
 GPIO.setmode(GPIO.BOARD)
@@ -21,6 +24,13 @@ duration = 3
 cooldown = 10
 duration_left = 0
 cooldown_left = 0
+
+
+# launch thread for uploading files to cloud
+def upload_to_cloud(file):
+    t = Thread(target=report_activity, args=(file,))
+    t.start()
+
 
 def control_gun():
     global duration_left
@@ -215,6 +225,9 @@ if __name__ == "__main__":
 
                         clip_writer.release()
                         frame_buffer = []
+
+                        print("Reporting activity to cloud...")
+                        response = upload_to_cloud(clip_save_path)
 
         if remaining_frames >= 0:
             if remaining_frames > 0:
