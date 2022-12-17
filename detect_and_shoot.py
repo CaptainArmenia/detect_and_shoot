@@ -9,7 +9,7 @@ from datetime import datetime
 import RPi.GPIO as GPIO
 import cv2
 
-from cloud_utils import report_activity
+from cloud_utils import report_activity, send_heartbeat
 
 
 GPIO.setmode(GPIO.BOARD)
@@ -32,7 +32,14 @@ def upload_to_cloud(file):
     t.start()
 
 
-def control_gun():
+# start heartbeat
+def heartbeat_loop():
+    while True:
+        send_heartbeat()
+        sleep(60)
+
+# gun control loop
+def gun_control_loop():
     global duration_left
     global cooldown_left
 
@@ -142,8 +149,16 @@ if __name__ == "__main__":
     remaining_frames = args.record_frames
 
     # start gun control thread
-    t = Thread(target=control_gun)
-    t.start()
+    gun_thread = Thread(target=gun_control_loop)
+    gun_thread.start()
+
+    # start heartbeat thread
+    heartbeat_thread = Thread(target=heartbeat_loop)
+    heartbeat_thread.start()
+
+    # output path
+    output_path = Path("output/detections")
+    output_path.mkdir(parents=True, exist_ok=True)
 
     while True:
         if no_activity_count >= 60 and not args.keep_alive:
@@ -217,7 +232,7 @@ if __name__ == "__main__":
                         fps, w, h = 1, im0.shape[1], im0.shape[0] # 1 fps
 
                         dt = datetime.now()
-                        clip_save_path = f'output/detections/{str(dt).split(".")[0].replace(" ", "_")}.mp4'
+                        clip_save_path = os.path.join(output_path, f'{str(dt).split(".")[0].replace(" ", "_")}.mp4')
                         clip_writer = cv2.VideoWriter(clip_save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
 
                         for frame in frame_buffer:
