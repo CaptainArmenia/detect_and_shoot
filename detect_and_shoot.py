@@ -9,7 +9,7 @@ from datetime import datetime
 import RPi.GPIO as GPIO
 import cv2
 
-from cloud_utils import report_activity, send_heartbeat
+from cloud_utils import report_activity, notify_heartbeat, notify_hibernation
 
 
 GPIO.setmode(GPIO.BOARD)
@@ -35,7 +35,7 @@ def upload_to_cloud(file):
 # start heartbeat
 def heartbeat_loop():
     while True:
-        send_heartbeat()
+        notify_heartbeat()
         sleep(60)
 
 # gun control loop
@@ -93,7 +93,7 @@ def intersection_over_target(target, box):
 
 def go_to_sleep():
     turn_off_lights()
-
+    notify_hibernation()
     bashCommand = "sudo shutdown -h now"
     os.system(bashCommand)
 
@@ -255,7 +255,7 @@ if __name__ == "__main__":
                 remaining_frames -= 1
             else:
                 vid_writer.release()
-                t.join()
+                gun_thread.join()
                 turn_off_pump()
                 turn_off_lights()
                 break
