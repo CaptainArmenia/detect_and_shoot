@@ -160,6 +160,8 @@ if __name__ == "__main__":
     output_path = Path("output/detections")
     output_path.mkdir(parents=True, exist_ok=True)
 
+    detected_classes = {}
+
     while True:
         if no_activity_count >= 60 and not args.keep_alive:
             print("Seems like nobody is here. Going to sleep.")
@@ -202,6 +204,7 @@ if __name__ == "__main__":
                         # Reset sleep counter
                         print("Activity detected!")
                         no_activity_count = 0
+                        detected_classes.add(int(detection[0][5]))
                 
                     # if detection class is raton and there is enough overlap between target and detection and there is enough overlap between detection and motion contour
                     if int(detection[0][5]) == 0 and (intersection_over_target((target_p1 + target_p2), detection[0]) > 0.3 or box_area(detection[0]) / (image_shape[0] * image_shape[1]) > 0.3) and intersection_over_target(motion_contour_box, detection[0]) > 0.05 and cooldown_left == 0:
@@ -240,9 +243,10 @@ if __name__ == "__main__":
 
                         clip_writer.release()
                         frame_buffer = []
+                        detected_classes = {}
 
                         print("Reporting activity to cloud...")
-                        response = upload_to_cloud(clip_save_path)
+                        response = upload_to_cloud(clip_save_path, detected_classes)
 
         if remaining_frames >= 0:
             if remaining_frames > 0:
