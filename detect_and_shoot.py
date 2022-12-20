@@ -27,8 +27,8 @@ cooldown_left = 0
 
 
 # launch thread for uploading files to cloud
-def upload_to_cloud(file):
-    t = Thread(target=report_activity, args=(file,))
+def upload_to_cloud(file, detected_classes):
+    t = Thread(target=report_activity, args=(file, detected_classes))
     t.start()
 
 
