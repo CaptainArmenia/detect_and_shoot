@@ -160,7 +160,7 @@ if __name__ == "__main__":
     output_path = Path("output/detections")
     output_path.mkdir(parents=True, exist_ok=True)
 
-    detected_classes = {}
+    detected_classes = set()
 
     while True:
         if no_activity_count >= 60 and not args.keep_alive:
@@ -243,7 +243,7 @@ if __name__ == "__main__":
 
                         clip_writer.release()
                         frame_buffer = []
-                        detected_classes = {}
+                        detected_classes = set()
 
                         print("Reporting activity to cloud...")
                         response = upload_to_cloud(clip_save_path, detected_classes)
