@@ -243,10 +243,10 @@ if __name__ == "__main__":
 
                         clip_writer.release()
                         frame_buffer = []
-                        detected_classes = set()
 
                         print("Reporting activity to cloud...")
-                        response = upload_to_cloud(clip_save_path, detected_classes)
+                        response = upload_to_cloud(clip_save_path, str(list(detected_classes))[1:-1])
+                        detected_classes = set()
 
         if remaining_frames >= 0:
             if remaining_frames > 0:
