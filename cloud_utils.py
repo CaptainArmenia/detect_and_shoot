@@ -13,7 +13,7 @@ def report_activity(file, detected_classes):
     file_dict = {'file': open(file,'rb')}
     headers = {"x-api-key": api_key}
     endpoint = "/api/machines/report-activity"
-    response = requests.post(url + endpoint, headers=headers, files=file_dict, data={"detections": str(detected_classes)})
+    response = requests.post(url + endpoint, headers=headers, files=file_dict, data={"detections": detected_classes})
     print(f"Upload result: {response}")
 
 
