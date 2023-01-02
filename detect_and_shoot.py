@@ -113,6 +113,7 @@ def turn_off_lights():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--keep_alive", action="store_true")
+    parser.add_argument("--peaceful", action="store_true")
     parser.add_argument("--record_frames", type=int, default=-1)
 
     args = parser.parse_args()
@@ -120,20 +121,26 @@ if __name__ == "__main__":
     turn_off_pump()
     turn_on_lights()
 
+    if args.peaceful:
+        print("Running in peaceful mode")
+    else:
+        print("Running in war mode")
+
     detection_hits = 0
     
-    #from yolov5.detect import Detector
-    #detector = Detector(source="picamera", imgsz=640, weights="yolov5s_filtered.pt", half=False, dnn=False)
+    # from yolov5.detect import Detector
+    # detector = Detector(source="picamera", imgsz=640, weights="yolov5s_filtered.pt", half=False, dnn=False)
 
     from yolov7.detect import Detector
     detector = Detector(source="picamera", imgsz=640, weights="best.pt", half=False, dnn=False)
 
-    # target config
-    target_width = 200
-    target_height = 200
-    target_color = (255, 0, 0)
-    target_p1, target_p2 = None, None
-    target_lw = 3
+    if not args.peaceful:
+        # target config
+        target_width = 200
+        target_height = 200
+        target_color = (255, 0, 0)
+        target_p1, target_p2 = None, None
+        target_lw = 3
 
     # initialize background substractor
     fgbg = cv2.createBackgroundSubtractorMOG2()
@@ -151,9 +158,10 @@ if __name__ == "__main__":
     no_activity_count = 0
     remaining_frames = args.record_frames
 
-    # start gun control thread
-    gun_thread = Thread(target=gun_control_loop)
-    gun_thread.start()
+    if not args.peaceful:
+        # start gun control thread
+        gun_thread = Thread(target=gun_control_loop)
+        gun_thread.start()
 
     # start heartbeat thread
     heartbeat_thread = Thread(target=heartbeat_loop)
@@ -170,16 +178,17 @@ if __name__ == "__main__":
             print("Seems like nobody is here. Going to sleep.")
             go_to_sleep()
 
-        detections, im0 = detector.detect_once(conf_thres=0.6, grayscale=True)
+        detections, im0 = detector.detect_once(conf_thres=0.9, grayscale=True)
 
-        # target setup
-        if (target_p1, target_p2) == (None, None):
-            image_shape = im0.shape
-            target_p1 = (int((image_shape[0] - target_width)/ 2), int((image_shape[1] - target_height) / 2))
-            target_p2 = (int((image_shape[0] + target_width)/ 2), int((image_shape[1] + target_height) / 2))
-        
-        # draw target
-        cv2.rectangle(im0, target_p1, target_p2, target_color, thickness=target_lw, lineType=cv2.LINE_AA)
+        if not args.peaceful:
+            # target setup
+            if (target_p1, target_p2) == (None, None):
+                image_shape = im0.shape
+                target_p1 = (int((image_shape[0] - target_width)/ 2), int((image_shape[1] - target_height) / 2))
+                target_p2 = (int((image_shape[0] + target_width)/ 2), int((image_shape[1] + target_height) / 2))
+            
+            # draw target
+            cv2.rectangle(im0, target_p1, target_p2, target_color, thickness=target_lw, lineType=cv2.LINE_AA)
         
         # detect motion
         fgmask = fgbg.apply(im0)
@@ -197,7 +206,6 @@ if __name__ == "__main__":
             cv2.rectangle(im0, (x, y), (x + w, y + h), (255, 255, 255), 1)
             print("Motion detected!")
             motion_detected = True
-            # cv2.drawContours(fgmask, cnt, -1, 255, 3)
             break
 
         for detection in detections:
@@ -208,22 +216,24 @@ if __name__ == "__main__":
                         print("Activity detected!")
                         no_activity_count = 0
                         detected_classes.add(detector.names[int(detection[0][5])])
-                
-                    # if detection class is raton and there is enough overlap between target and detection and there is enough overlap between detection and motion contour
-                    if int(detection[0][5]) == 0 and (intersection_over_target((target_p1 + target_p2), detection[0]) > 0.3 or box_area(detection[0]) / (image_shape[0] * image_shape[1]) > 0.3) and intersection_over_target(motion_contour_box, detection[0]) > 0.05 and cooldown_left == 0:
-                        print("Feuer!")
-                        duration_left = 3
-                        target_color = (0, 0, 255)
-                        cooldown_left = cooldown
-                        
-                        # Draw activated target
-                        cv2.rectangle(im0, target_p1, target_p2, target_color, thickness=target_lw, lineType=cv2.LINE_AA)
+
+                    if not args.peaceful:
+                        # if detection class is raton and there is enough overlap between target and detection and there is enough overlap between detection and motion contour
+                        if int(detection[0][5]) == 0 and (intersection_over_target((target_p1 + target_p2), detection[0]) > 0.3 or box_area(detection[0]) / (image_shape[0] * image_shape[1]) > 0.3) and intersection_over_target(motion_contour_box, detection[0]) > 0.05 and cooldown_left == 0:
+                            print("Feuer!")
+                            duration_left = 3
+                            target_color = (0, 0, 255)
+                            cooldown_left = cooldown
+                            
+                            # Draw activated target
+                            cv2.rectangle(im0, target_p1, target_p2, target_color, thickness=target_lw, lineType=cv2.LINE_AA)
 
                 if save_clips:
                     frame_buffer.append(im0)
                     empty_frames_count = 5
 
-                target_color = (255, 0, 0)
+                if not args.peaceful:
+                    target_color = (255, 0, 0)
             
             else:
                 no_activity_count += 1
@@ -262,7 +272,10 @@ if __name__ == "__main__":
                 remaining_frames -= 1
             else:
                 vid_writer.release()
-                gun_thread.join()
+
+                if not args.peaceful:
+                    gun_thread.join()
+
                 turn_off_pump()
                 turn_off_lights()
                 break
