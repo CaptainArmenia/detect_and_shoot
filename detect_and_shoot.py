@@ -172,6 +172,7 @@ if __name__ == "__main__":
     output_path.mkdir(parents=True, exist_ok=True)
 
     detected_classes = set()
+    clip_detections = []
 
     while True:
         if no_activity_count >= 60 and not args.keep_alive:
@@ -188,7 +189,7 @@ if __name__ == "__main__":
                 target_p2 = (int((image_shape[0] + target_width)/ 2), int((image_shape[1] + target_height) / 2))
             
             # draw target
-            cv2.rectangle(im0, target_p1, target_p2, target_color, thickness=target_lw, lineType=cv2.LINE_AA)
+            # cv2.rectangle(im0, target_p1, target_p2, target_color, thickness=target_lw, lineType=cv2.LINE_AA)
         
         # detect motion
         fgmask = fgbg.apply(im0)
@@ -203,30 +204,33 @@ if __name__ == "__main__":
             
             (x, y, w, h) = cv2.boundingRect(cnt)
             motion_contour_box = (x, y, x + w, y + h)
-            cv2.rectangle(im0, (x, y), (x + w, y + h), (255, 255, 255), 1)
+            # cv2.rectangle(im0, (x, y), (x + w, y + h), (255, 255, 255), 1)
             print("Motion detected!")
             motion_detected = True
             break
 
-        for detection in detections:
-            if len(detection) > 0:
-                if motion_detected:
-                    if intersection_over_target((x, y, x + w, y + h), detection[0]):
-                        # Reset sleep counter
-                        print("Activity detected!")
-                        no_activity_count = 0
-                        detected_classes.add(detector.names[int(detection[0][5])])
+        
+        if len(detections[0]) > 0:
+            if motion_detected:
+                clip_detections.append(detections[0])
+                # Reset sleep counter
+                print("Activity detected!")
+                no_activity_count = 0
+
+                for detection in detections[0]:
+                    if intersection_over_target((x, y, x + w, y + h), detection):
+                        detected_classes.add(detector.names[int(detection[5])])
 
                     if not args.peaceful:
                         # if detection class is raton and there is enough overlap between target and detection and there is enough overlap between detection and motion contour
-                        if int(detection[0][5]) == 0 and (intersection_over_target((target_p1 + target_p2), detection[0]) > 0.3 or box_area(detection[0]) / (image_shape[0] * image_shape[1]) > 0.3) and intersection_over_target(motion_contour_box, detection[0]) > 0.05 and cooldown_left == 0:
+                        if int(detection[5]) == 0 and (intersection_over_target((target_p1 + target_p2), detection[0]) > 0.3 or box_area(detection) / (image_shape[0] * image_shape[1]) > 0.3) and intersection_over_target(motion_contour_box, detection) > 0.05 and cooldown_left == 0:
                             print("Feuer!")
                             duration_left = 3
                             target_color = (0, 0, 255)
                             cooldown_left = cooldown
                             
                             # Draw activated target
-                            cv2.rectangle(im0, target_p1, target_p2, target_color, thickness=target_lw, lineType=cv2.LINE_AA)
+                            # cv2.rectangle(im0, target_p1, target_p2, target_color, thickness=target_lw, lineType=cv2.LINE_AA)
 
                 if save_clips:
                     frame_buffer.append(im0)
@@ -235,31 +239,33 @@ if __name__ == "__main__":
                 if not args.peaceful:
                     target_color = (255, 0, 0)
             
-            else:
-                no_activity_count += 1
+        else:
+            no_activity_count += 1
 
-                if len(frame_buffer) > 0 and save_clips:
-                    if empty_frames_count > 0:
-                        frame_buffer.append(im0)
-                        empty_frames_count -= 1
-                    else:
-                        print("saving video clip")
-                        # Save clip
-                        fps, w, h = 1, im0.shape[1], im0.shape[0] # 1 fps
+            if len(frame_buffer) > 0 and save_clips:
+                if empty_frames_count > 0:
+                    frame_buffer.append(im0)
+                    clip_detections.append(None)
+                    empty_frames_count -= 1
+                else:
+                    print("saving video clip")
+                    # Save clip
+                    fps, w, h = 1, im0.shape[1], im0.shape[0] # 1 fps
 
-                        dt = datetime.now()
-                        clip_save_path = os.path.join(output_path, f'{str(dt).split(".")[0].replace(" ", "_")}.mp4')
-                        clip_writer = cv2.VideoWriter(clip_save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
+                    dt = datetime.now()
+                    clip_save_path = os.path.join(output_path, f'{str(dt).split(".")[0].replace(" ", "_")}.mp4')
+                    clip_writer = cv2.VideoWriter(clip_save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
 
-                        for frame in frame_buffer:
-                            clip_writer.write(frame)
+                    for frame in frame_buffer:
+                        clip_writer.write(frame)
 
-                        clip_writer.release()
-                        frame_buffer = []
+                    clip_writer.release()
+                    frame_buffer = []
 
-                        print("Reporting activity to cloud...")
-                        response = upload_to_cloud(clip_save_path, ','.join(detected_classes))
-                        detected_classes = set()
+                    print("Reporting activity to cloud...")
+                    response = upload_to_cloud(clip_save_path, ','.join(detected_classes))
+                    detected_classes = set()
+                    clip_detections = []
 
         if remaining_frames >= 0:
             if remaining_frames > 0:
