@@ -9,11 +9,11 @@ api_key = secrets.get("api_key")
 url = secrets.get("url")
 
 # Report detected activity to cloud
-def report_activity(file, detected_classes):
+def report_activity(file, detections):
     file_dict = {'file': open(file,'rb')}
     headers = {"x-api-key": api_key}
     endpoint = "/api/machines/report-activity"
-    response = requests.post(url + endpoint, headers=headers, files=file_dict, data={"detections": detected_classes})
+    response = requests.post(url + endpoint, headers=headers, files=file_dict, data={"clip_detections": json.dumps(detections)})
     print(f"Upload result: {response}")
 
 

@@ -1,4 +1,5 @@
 import os
+import json
 from time import sleep
 from threading import Thread
 import sys
@@ -8,7 +9,7 @@ from datetime import datetime
 
 import RPi.GPIO as GPIO
 import cv2
-
+import numpy as np
 from cloud_utils import report_activity, notify_heartbeat, notify_hibernation
 
 
@@ -27,8 +28,8 @@ cooldown_left = 0
 
 
 # launch thread for uploading files to cloud
-def upload_to_cloud(file, detected_classes):
-    t = Thread(target=report_activity, args=(file, detected_classes))
+def upload_to_cloud(file, clip_detections):
+    t = Thread(target=report_activity, args=(file, clip_detections))
     t.start()
 
 
@@ -110,6 +111,22 @@ def turn_off_lights():
     sleep(0.1)
 
 
+def format_detections(clip_detections, names):
+    formatted_detections = {}
+
+    for idx, frame_detections in enumerate(clip_detections):
+        if frame_detections is not None:
+            frame_detections_list = frame_detections.tolist()
+            # Replace class index with class name
+            for idxx, detection in enumerate(frame_detections_list):
+                frame_detections_list[idxx][5] = names[int(detection[5])]
+            formatted_detections[str(idx)] = frame_detections_list
+        else:
+            formatted_detections[str(idx)] = []
+
+    return formatted_detections
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--keep_alive", action="store_true")
@@ -168,10 +185,11 @@ if __name__ == "__main__":
     heartbeat_thread.start()
 
     # output path
-    output_path = Path("output/detections")
-    output_path.mkdir(parents=True, exist_ok=True)
+    output_clips_path = Path("output/clips")
+    output_clips_path.mkdir(parents=True, exist_ok=True)
+    output_detections_path = Path("output/detections")
+    output_detections_path.mkdir(parents=True, exist_ok=True)
 
-    detected_classes = set()
     clip_detections = []
 
     while True:
@@ -212,33 +230,34 @@ if __name__ == "__main__":
         
         if len(detections[0]) > 0:
             if motion_detected:
-                clip_detections.append(detections[0])
-                # Reset sleep counter
-                print("Activity detected!")
-                no_activity_count = 0
-
+                frame_detections = []
                 for detection in detections[0]:
-                    if intersection_over_target((x, y, x + w, y + h), detection):
-                        detected_classes.add(detector.names[int(detection[5])])
+                    if intersection_over_target(motion_contour_box, detection):
+                        # Add frame detections only once
+                        frame_detections.append(detection.numpy())
+                        # Reset sleep counter
+                        print("Activity detected!")
+                        no_activity_count = 0
 
-                    if not args.peaceful:
-                        # if detection class is raton and there is enough overlap between target and detection and there is enough overlap between detection and motion contour
-                        if int(detection[5]) == 0 and (intersection_over_target((target_p1 + target_p2), detection[0]) > 0.3 or box_area(detection) / (image_shape[0] * image_shape[1]) > 0.3) and intersection_over_target(motion_contour_box, detection) > 0.05 and cooldown_left == 0:
-                            print("Feuer!")
-                            duration_left = 3
-                            target_color = (0, 0, 255)
-                            cooldown_left = cooldown
-                            
-                            # Draw activated target
-                            # cv2.rectangle(im0, target_p1, target_p2, target_color, thickness=target_lw, lineType=cv2.LINE_AA)
+                        if not args.peaceful:
+                            # if detection class is raton and there is enough overlap between target and detection and there is enough overlap between detection and motion contour
+                            if int(detection[5]) == 0 and (intersection_over_target((target_p1 + target_p2), detection[0]) > 0.3 or box_area(detection) / (image_shape[0] * image_shape[1]) > 0.3) and intersection_over_target(motion_contour_box, detection) > 0.05 and cooldown_left == 0:
+                                print("Feuer!")
+                                duration_left = 3
+                                target_color = (0, 0, 255)
+                                cooldown_left = cooldown
+                                
+                                # Draw activated target
+                                # cv2.rectangle(im0, target_p1, target_p2, target_color, thickness=target_lw, lineType=cv2.LINE_AA)
 
-                if save_clips:
-                    frame_buffer.append(im0)
-                    empty_frames_count = 5
+                        if save_clips:
+                            frame_buffer.append(im0)
+                            empty_frames_count = 5
 
-                if not args.peaceful:
-                    target_color = (255, 0, 0)
-            
+                        if not args.peaceful:
+                            target_color = (255, 0, 0)
+                if len(frame_detections) > 0:
+                    clip_detections.append(np.stack(frame_detections))
         else:
             no_activity_count += 1
 
@@ -253,7 +272,7 @@ if __name__ == "__main__":
                     fps, w, h = 1, im0.shape[1], im0.shape[0] # 1 fps
 
                     dt = datetime.now()
-                    clip_save_path = os.path.join(output_path, f'{str(dt).split(".")[0].replace(" ", "_")}.mp4')
+                    clip_save_path = os.path.join(output_clips_path, f'{str(dt).split(".")[0].replace(" ", "_")}.mp4')
                     clip_writer = cv2.VideoWriter(clip_save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
 
                     for frame in frame_buffer:
@@ -263,8 +282,8 @@ if __name__ == "__main__":
                     frame_buffer = []
 
                     print("Reporting activity to cloud...")
-                    response = upload_to_cloud(clip_save_path, ','.join(detected_classes))
-                    detected_classes = set()
+
+                    response = upload_to_cloud(clip_save_path, clip_detections=format_detections(clip_detections, detector.names))
                     clip_detections = []
 
         if remaining_frames >= 0:
