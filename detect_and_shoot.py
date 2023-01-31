@@ -228,10 +228,10 @@ if __name__ == "__main__":
             (x, y, w, h) = cv2.boundingRect(cnt)
             motion_contour_box = (x, y, x + w, y + h)
             # cv2.rectangle(im0, (x, y), (x + w, y + h), (255, 255, 255), 1)
-            print("Motion detected!")
             filtered_contours.append(motion_contour_box)
-            break
-
+        
+        if len(filtered_contours) > 0:
+            print("Motion detected!")
         
         if len(detections[0]) > 0:
             # initialize activity flag
@@ -250,7 +250,6 @@ if __name__ == "__main__":
                         frame_detections.append(detection.numpy())
                         # Reset sleep counter
                         activity_detected = True
-                        print("Activity detected!")
                         no_activity_count = 0
 
                         if not args.peaceful:
@@ -267,9 +266,11 @@ if __name__ == "__main__":
                         if not args.peaceful:
                             target_color = (255, 0, 0)
 
-                if save_clips and activity_detected:
-                    frame_buffer.append(im0)
-                    empty_frames_count = 5
+                if activity_detected:
+                    print("Activity detected!")
+                    if save_clips:
+                        frame_buffer.append(im0)
+                        empty_frames_count = 5
 
                 if len(frame_detections) > 0:
                     clip_detections.append(np.stack(frame_detections))
