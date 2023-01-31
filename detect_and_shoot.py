@@ -215,6 +215,11 @@ if __name__ == "__main__":
         contours = sorted(contours,key=cv2.contourArea,reverse= True)
 
         motion_detected = False
+        
+        #########################
+        ### AQUI HAY UN ERROR!!!
+        ######################### solo se cuenta el primer contorno valido
+        filtered_contours = []
 
         for cnt in contours:
             if cv2.contourArea(cnt) < minimum:
@@ -224,24 +229,33 @@ if __name__ == "__main__":
             motion_contour_box = (x, y, x + w, y + h)
             # cv2.rectangle(im0, (x, y), (x + w, y + h), (255, 255, 255), 1)
             print("Motion detected!")
-            motion_detected = True
+            filtered_contours.append(motion_contour_box)
             break
 
         
         if len(detections[0]) > 0:
-            if motion_detected:
+            # initialize activity flag
+            activity_detected = False
+
+            if len(filtered_contours) > 0:
                 frame_detections = []
                 for detection in detections[0]:
-                    if intersection_over_target(motion_contour_box, detection):
+                    detection_intersects_motion = False
+                    for motion_contour_box in filtered_contours:
+                        if intersection_over_target(motion_contour_box, detection) > 0.3:
+                            detection_intersects_motion = True
+                            break
+                    if detection_intersects_motion:
                         # Add frame detections only once
                         frame_detections.append(detection.numpy())
                         # Reset sleep counter
+                        activity_detected = True
                         print("Activity detected!")
                         no_activity_count = 0
 
                         if not args.peaceful:
                             # if detection class is raton and there is enough overlap between target and detection and there is enough overlap between detection and motion contour
-                            if int(detection[5]) == 0 and (intersection_over_target((target_p1 + target_p2), detection[0]) > 0.3 or box_area(detection) / (image_shape[0] * image_shape[1]) > 0.3) and intersection_over_target(motion_contour_box, detection) > 0.05 and cooldown_left == 0:
+                            if int(detection[5]) == 0 and (intersection_over_target((target_p1 + target_p2), detection[0]) > 0.3 or box_area(detection) / (image_shape[0] * image_shape[1]) > 0.3) and cooldown_left == 0:
                                 print("Feuer!")
                                 duration_left = 3
                                 target_color = (0, 0, 255)
@@ -250,12 +264,13 @@ if __name__ == "__main__":
                                 # Draw activated target
                                 # cv2.rectangle(im0, target_p1, target_p2, target_color, thickness=target_lw, lineType=cv2.LINE_AA)
 
-                        if save_clips:
-                            frame_buffer.append(im0)
-                            empty_frames_count = 5
-
                         if not args.peaceful:
                             target_color = (255, 0, 0)
+
+                if save_clips and activity_detected:
+                    frame_buffer.append(im0)
+                    empty_frames_count = 5
+
                 if len(frame_detections) > 0:
                     clip_detections.append(np.stack(frame_detections))
         else:
