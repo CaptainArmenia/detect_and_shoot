@@ -25,13 +25,14 @@ Usage - formats:
 """
 
 import argparse
-from fcntl import F_SEAL_SEAL
+#from fcntl import F_SEAL_SEAL
 import os
 import platform
 import sys
 from pathlib import Path
 import time
 
+import numpy as np
 import torch
 
 FILE = Path(__file__).resolve()
@@ -70,8 +71,8 @@ class Detector:
         self.save_dir.mkdir(parents=True, exist_ok=True)  # make dir
 
         # Load model
-        self.device = select_device("cpu")
-        self.model = DetectMultiBackend(weights, device=self.device, dnn=dnn, data=None, fp16=half)
+        self.device = select_device(0)
+        self.model = DetectMultiBackend(weights, device=self.device, dnn=dnn, data=None, fp16=half, fuse=True)
         self.stride, self.names, self.pt = self.model.stride, self.model.names, self.model.pt
         self.imgsz = check_img_size(self.imgsz, s=self.stride)  # check image size
 
@@ -86,22 +87,23 @@ class Detector:
         else:
             dataset = LoadImages(source, img_size=self.imgsz, stride=self.stride, auto=self.pt, vid_stride=1)
             bs = 1  # batch_size
+
+        self.model.warmup(imgsz=(1, 3, imgsz, imgsz))  # warmup
         
 
     # Inference
     def detect_once(self, conf_thres=0.25, iou_thres=0.45, grayscale=False):
         path, im, im0s, vid_cap = self.dataset.__next__()
-        
+
         if grayscale:
-            print(im.shape)
             im = im.transpose(1, 2, 0)
             im = cv2.cvtColor(im, cv2.COLOR_RGB2GRAY)
             im = cv2.cvtColor(im, cv2.COLOR_GRAY2RGB)
             im = im.transpose(2, 0, 1)
+            im = np.ascontiguousarray(im)
 
             im0s = cv2.cvtColor(im0s, cv2.COLOR_RGB2GRAY)
             im0s = cv2.cvtColor(im0s, cv2.COLOR_GRAY2RGB)
-
 
         seen, windows, dt = 0, [], (Profile(), Profile(), Profile())
 
@@ -119,7 +121,7 @@ class Detector:
 
         # NMS
         with dt[2]:
-            pred = non_max_suppression(pred, conf_thres, iou_thres, None, False, max_det=20)
+            pred = non_max_suppression(pred, conf_thres, iou_thres, None, False, max_det=5)
 
         s = ""
         
@@ -153,12 +155,12 @@ class Detector:
                 for *xyxy, conf, cls in reversed(det):
                     c = int(cls)  # integer class
                     label = f'{self.names[c]} {conf:.2f}'
-                    annotator.box_label(xyxy, label, color=colors(c, True))
+                    #annotator.box_label(xyxy, label, color=colors(c, True))
 
             im0 = annotator.result()
 
         # Print time (inference-only)
-        LOGGER.info(f"{s}{'' if len(det) else '(no detections), '}{dt[1].dt * 1E3:.1f}ms")
+        #LOGGER.info(f"{s}{'' if len(det) else '(no detections), '}{dt[1].dt * 1E3:.1f}ms")
         
         return pred, im0 
 

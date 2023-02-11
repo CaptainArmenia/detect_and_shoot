@@ -1,6 +1,6 @@
 import os
 import json
-from time import sleep
+from time import sleep, process_time, time
 from threading import Thread
 import sys
 import argparse
@@ -145,11 +145,11 @@ if __name__ == "__main__":
 
     detection_hits = 0
     
-    # from yolov5.detect import Detector
-    # detector = Detector(source="picamera", imgsz=640, weights="yolov5s_filtered.pt", half=False, dnn=False)
+    from yolov5.detect import Detector
+    detector = Detector(source="picamera", imgsz=640, weights="yolov5s_filtered_old.engine")
 
-    from yolov7.detect import Detector
-    detector = Detector(source="picamera", imgsz=640, weights="best.pt", half=False, dnn=False)
+    #from yolov7.detect import Detector
+    #detector = Detector(source="picamera", imgsz=640, weights="best.pt", half=False, dnn=False)
 
     if not args.peaceful:
         # target config
@@ -190,14 +190,27 @@ if __name__ == "__main__":
     output_detections_path = Path("output/detections")
     output_detections_path.mkdir(parents=True, exist_ok=True)
 
+    detect_motion = False
+
     clip_detections = []
 
+    frame_counter = 0
+    log_frequency = 30
+
     while True:
+        if frame_counter == 0:
+            time_marker = time()
+        elif frame_counter % log_frequency == 0:
+            time_delta = time() - time_marker
+            print(f"Processing frames at {'%.1f' % (frame_counter / time_delta)} fps ({frame_counter} in {('%.1f' % time_delta)} s)")
+            time_marker = time()
+            frame_counter = 0
+
         if no_activity_count >= 60 and not args.keep_alive:
             print("Seems like nobody is here. Going to sleep.")
             go_to_sleep()
 
-        detections, im0 = detector.detect_once(conf_thres=0.9, grayscale=True)
+        detections, im0 = detector.detect_once(conf_thres=0.75, grayscale=True)
 
         if not args.peaceful:
             # target setup
@@ -205,56 +218,53 @@ if __name__ == "__main__":
                 image_shape = im0.shape
                 target_p1 = (int((image_shape[0] - target_width)/ 2), int((image_shape[1] - target_height) / 2))
                 target_p2 = (int((image_shape[0] + target_width)/ 2), int((image_shape[1] + target_height) / 2))
-            
-            # draw target
-            # cv2.rectangle(im0, target_p1, target_p2, target_color, thickness=target_lw, lineType=cv2.LINE_AA)
         
-        # detect motion
-        fgmask = fgbg.apply(im0)
-        contours,_ = cv2.findContours(fgmask, mode= cv2.RETR_TREE, method= cv2.CHAIN_APPROX_SIMPLE)
-        contours = sorted(contours,key=cv2.contourArea,reverse= True)
+        if detect_motion:
+            # detect motion
+            fgmask = fgbg.apply(im0)
+            contours,_ = cv2.findContours(fgmask, mode= cv2.RETR_TREE, method= cv2.CHAIN_APPROX_SIMPLE)
+            contours = sorted(contours,key=cv2.contourArea,reverse= True)
 
-        motion_detected = False
-        
-        #########################
-        ### AQUI HAY UN ERROR!!!
-        ######################### solo se cuenta el primer contorno valido
-        filtered_contours = []
-
-        for cnt in contours:
-            if cv2.contourArea(cnt) < minimum:
-                    continue
+            motion_detected = False
             
-            (x, y, w, h) = cv2.boundingRect(cnt)
-            motion_contour_box = (x, y, x + w, y + h)
-            # cv2.rectangle(im0, (x, y), (x + w, y + h), (255, 255, 255), 1)
-            filtered_contours.append(motion_contour_box)
-        
-        if len(filtered_contours) > 0:
-            print("Motion detected!")
-        
+            #########################
+            ### AQUI HAY UN ERROR!!!
+            ######################### solo se cuenta el primer contorno valido
+            filtered_contours = []
+
+            for cnt in contours:
+                if cv2.contourArea(cnt) < minimum:
+                        continue
+                
+                (x, y, w, h) = cv2.boundingRect(cnt)
+                motion_contour_box = (x, y, x + w, y + h)
+                # cv2.rectangle(im0, (x, y), (x + w, y + h), (255, 255, 255), 1)
+                filtered_contours.append(motion_contour_box)
         if len(detections[0]) > 0:
             # initialize activity flag
             activity_detected = False
 
-            if len(filtered_contours) > 0:
+            if (detect_motion and len(filtered_contours) > 0) or not detect_motion:
                 frame_detections = []
                 for detection in detections[0]:
+                    detection = detection.cpu().numpy()
+                    print(detection)
                     detection_intersects_motion = False
-                    for motion_contour_box in filtered_contours:
-                        if intersection_over_target(motion_contour_box, detection) > 0.3:
-                            detection_intersects_motion = True
-                            break
-                    if detection_intersects_motion:
+                    if detect_motion:
+                        for motion_contour_box in filtered_contours:
+                            if intersection_over_target(motion_contour_box, detection) > 0.3:
+                                detection_intersects_motion = True
+                                break
+                    if detection_intersects_motion or not detect_motion:
                         # Add frame detections only once
-                        frame_detections.append(detection.numpy())
+                        frame_detections.append(detection)
                         # Reset sleep counter
                         activity_detected = True
                         no_activity_count = 0
 
                         if not args.peaceful:
                             # if detection class is raton and there is enough overlap between target and detection and there is enough overlap between detection and motion contour
-                            if int(detection[5]) == 0 and (intersection_over_target((target_p1 + target_p2), detection[0]) > 0.3 or box_area(detection) / (image_shape[0] * image_shape[1]) > 0.3) and cooldown_left == 0:
+                            if int(detection[5]) == 0 and (intersection_over_target((target_p1 + target_p2), detection) > 0.3 or box_area(detection) / (image_shape[0] * image_shape[1]) > 0.3) and cooldown_left == 0:
                                 print("Feuer!")
                                 duration_left = 3
                                 target_color = (0, 0, 255)
@@ -316,7 +326,10 @@ if __name__ == "__main__":
 
                 if not args.peaceful:
                     gun_thread.join()
-
+                
+                detector.source.video_capture.release()
                 turn_off_pump()
                 turn_off_lights()
                 break
+        
+        frame_counter += 1

@@ -27,8 +27,6 @@ import yaml
 from PIL import ExifTags, Image, ImageOps
 from torch.utils.data import DataLoader, Dataset, dataloader, distributed
 from tqdm import tqdm
-from picamera2 import Picamera2
-import libcamera
 
 from utils.augmentations import (Albumentations, augment_hsv, classify_albumentations, classify_transforms, copy_paste,
                                  letterbox, mixup, random_perspective)
@@ -270,7 +268,7 @@ class LoadImages:
         self.frame = 0
         self.cap = cv2.VideoCapture(path)
         self.frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT) / self.vid_stride)
-        self.orientation = int(self.cap.get(cv2.CAP_PROP_ORIENTATION_META))  # rotation degrees
+        self.orientation = 1  # rotation degrees
         # self.cap.set(cv2.CAP_PROP_ORIENTATION_AUTO, 0)  # disable https://github.com/ultralytics/yolov5/issues/8493
 
     def _cv2_rotate(self, im):
@@ -286,18 +284,41 @@ class LoadImages:
     def __len__(self):
         return self.nf  # number of files
 
+def gstreamer_pipeline(
+    sensor_id=0,
+    capture_width=640,
+    capture_height=640,
+    display_width=640,
+    display_height=640,
+    framerate=30,
+    flip_method=0,
+):
+    return (
+        "nvarguscamerasrc sensor-id=%d !"
+        "video/x-raw(memory:NVMM), width=(int)%d, height=(int)%d, framerate=(fraction)%d/1 ! "
+        "nvvidconv flip-method=%d ! "
+        "video/x-raw, width=(int)%d, height=(int)%d, format=(string)BGRx ! "
+        "videoconvert ! "
+        "video/x-raw, format=(string)BGR ! appsink max-buffers=1 drop=True"
+        % (
+            sensor_id,
+            capture_width,
+            capture_height,
+            framerate,
+            flip_method,
+            display_width,
+            display_height,
+        )
+    )
+
 
 class LoadPiCamera:  # for inference
     # YOLOv5 local webcam dataloader, i.e. `python detect.py --source 0`
     def __init__(self, pipe='0', img_size=640, stride=32):
         self.img_size = img_size
         self.stride = stride
-        self.camera = Picamera2()
-        config = self.camera.create_still_configuration(main={"format": "RGB888", "size": (img_size, img_size)})
-        config["transform"] = libcamera.Transform(hflip=0, vflip=1)
-        self.camera.configure(config)
-        # self.camera.configure(self.camera.create_preview_configuration(main={"format": "XRGB8888", "size": (img_size, img_size)}))
-        self.camera.start()
+        self.video_capture = cv2.VideoCapture(gstreamer_pipeline(flip_method=0), cv2.CAP_GSTREAMER)
+        print(gstreamer_pipeline(flip_method=0))
         self.mode = "stream"
         self.count = 0
 
@@ -307,14 +328,11 @@ class LoadPiCamera:  # for inference
 
     def __next__(self):
         self.count += 1
-
-        if cv2.waitKey(1) == ord('q'):
-            self.cap.release()
-            cv2.destroyAllWindows()
-            raise StopIteration
-
+        
         # Read frame
-        img0 = self.camera.capture_array()
+        #if self.video_capture.isOpened():
+        ret_val, img0 = self.video_capture.read()
+
         img0 = cv2.flip(img0, 1)  # flip left-right
 
         # Print
